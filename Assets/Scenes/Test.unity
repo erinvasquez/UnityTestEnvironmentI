@@ -1218,7 +1218,7 @@ PrefabInstance:
     - target: {fileID: 1753095873255602616, guid: 8936c629616719e4ba679e8292d58637,
         type: 3}
       propertyPath: maxGroundAngle
-      value: 33
+      value: 40
       objectReference: {fileID: 0}
     - target: {fileID: 1753095873255602616, guid: 8936c629616719e4ba679e8292d58637,
         type: 3}
