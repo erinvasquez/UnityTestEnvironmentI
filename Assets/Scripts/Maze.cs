@@ -3,314 +3,198 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Original Java Authors: Mario Cordova, Adriana Davila, Yul Puma, Yiming Zhao, Erin Vasquez
-/// Date First Released: 12/8/2015
+/// Script assembled from https://catlikecoding.com/unity/tutorials/maze/
+/// 
 /// </summary>
 public class Maze : MonoBehaviour {
+    public IntVector2 size;
 
-    [SerializeField, Range(1, 100)]
-    int MazeSize = 20;
+    public MazeCell cellPrefab;
+    public MazePassage passagePrefab;
+    public MazeWall[] wallPrefabs;
+    public MazeDoor doorPrefab;
 
-    enum VertexType {Wall, Path, SolvedPath, Exit};
+    [SerializeField, Range(0f, 1f)]
+    public float doorProbability;
 
+    private MazeCell[,] cells;
 
-
-    /// <summary>
-    /// a 2d array representing our maze consisting of our maze graph vertices
-    /// </summary>
-    Vertex[][] MazeMatrix;
-
-    /// <summary>
-    /// an array of... ?
-    /// </summary>
-    Vertex[] MST;
+    public float generationStepDelay;
 
     /// <summary>
-    /// an array of visited vertices
+    /// A property that returns a random IntVector2 coordinate
     /// </summary>
-    bool[] IsVisited;
+    public IntVector2 RandomCoordinates {
 
-    /// <summary>
-    /// An integer array of the solved maze path
-    /// </summary>
-    int[][] SolvedMazePath;
-
-    /// <summary>
-    /// 
-    /// </summary>
-    private void Awake() {
-        int VertexID = 0; // Set to 0 as our first vertex will be ID 0, incrementing by 1
-
-        MazeMatrix = new Vertex[MazeSize][];
-        MST = new Vertex[MazeSize * MazeSize];
-        SolvedMazePath = new int[(MazeSize * 2) - 1][];
-        IsVisited = new bool[MazeSize * MazeSize];
-
-
-        // Initialize all vertices as NOT visited
-        for (int i = 0; i < MazeSize * MazeSize; i++) {
-            IsVisited[i] = false;
+        get {
+            return new IntVector2(Random.Range(0, size.x), Random.Range(0, size.z));
         }
-
-        // Initialize our vertices
-        for (int i = 0; i < MazeSize; i++) {
-            for (int j = 0; j < MazeSize; j++) {
-                if (i == 0 && j == 0) {
-                    // If we're at the top left corner, set weight to 0 (as in wall?)
-                    MazeMatrix[i][j] = new Vertex(0, 0, 0, VertexID);
-
-                } else {
-                    // Set our weight to 1 (as in a path?)
-                    MazeMatrix[i][j] = new Vertex(1, i, j, VertexID);
-                }
-
-                // Increment our vertex ID for the next vertex to be initialized
-                VertexID++;
-            }
-        }
-
-        // For all of our vertices on our maze graph
-        for (int i = 0; i < MazeSize; i++) {
-            for (int j = 0; j < MazeSize; j++) {
-
-                // Set up the neighbors for this vertex
-                MazeMatrix[i][j].SetNeighbors(i, j, MazeMatrix);
-            }
-        }
-
 
     }
 
+    /// <summary>
+    /// Returns true if the coordinate can be contained by the maze
+    /// </summary>
+    /// <param name="coordinate">Coordinate for target MazeCell</param>
+    /// <returns></returns>
+    public bool ContainsCoordinates(IntVector2 coordinate) {
+        return coordinate.x >= 0 && coordinate.x < size.x && coordinate.z >= 0 && coordinate.z < size.z;
+    }
 
     /// <summary>
     /// 
+    /// </summary>
+    /// <param name="coordinates"></param>
+    /// <returns></returns>
+    public MazeCell GetCell(IntVector2 coordinates) {
+        return cells[coordinates.x, coordinates.z];
+    }
+
+    /// <summary>
+    /// Called by the MazeManager,
+    /// a Coroutine that generates our maze by
+    /// creating the cells and the edges
     /// </summary>
     /// <returns></returns>
-    public int[][] generateForGUI() {
-        Prim();
-        CreatePath();
-        SolveMaze(0, 0);
+    public IEnumerator Generate() {
+        WaitForSeconds delay = new WaitForSeconds(generationStepDelay);
+        cells = new MazeCell[size.x, size.z];
 
-        return SolvedMazePath;
-    }
+        // ActiveCells lists all cells that are "active"
+        // Active meaning we've stepped on them and we're gonna
+        // try backtracking to it
+        List<MazeCell> activeCells = new List<MazeCell>();
 
-    /// <summary>
-    /// 
-    /// </summary>
-    public void Print() {
-        string Output = "";
+        DoFirstGenerationStep(activeCells);
 
-        for (int i = 0; i < MazeSize; i++) {
+        while (activeCells.Count > 0) {
+            yield return delay;
 
-            for (int j = 0; j < MazeSize; j++) {
-                Output += MazeMatrix[i][j].id + " ";
-            }
-
-            Output += "\n";
-        }
-
-
-        Debug.Log(Output);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    public void Prim() {
-        MinHeap heap = new MinHeap();
-        int count = 0;
-        int neighborID;
-        Vertex min = null;
-
-        heap.Insert(MazeMatrix[0][0]);
-
-        while (!heap.IsEmpty()) {
-            min = heap.Pop();
-
-            IsVisited[min.id] = true;
-            MST[count++] = min;
-
-            for (int i = 0; i < min.Neighbors.Length; i++) {
-                neighborID = min.Neighbors[i].id;
-                //System.out.println(heap.search(neighborID) + " " + isVisited[neighborID]);
-                if (heap.Search(neighborID) == false && IsVisited[neighborID] == false) {
-                    //System.out.println("YES");
-                    min.Neighbors[i].previousX = min.row;
-                    min.Neighbors[i].previousY = min.col;
-                    heap.Insert(min.Neighbors[i]);
-                }
-            }
-            //System.out.println(heap.getSize());
-        }
-
-        IsVisited[min.id] = true;
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    public void CreatePath() {
-        int dimension = MazeSize;
-        int sizeOfMST = dimension * dimension;
-        int TargetID;
-
-        for (int i = 0; i < sizeOfMST; i++) {
-            TargetID = MST[i].id;
-
-            GetIDCoordinates(TargetID, dimension);
+            DoNextGenerationStep(activeCells);
         }
 
     }
 
     /// <summary>
-    /// 
+    /// Called in Generate()
     /// </summary>
-    /// <param name="ID"></param>
-    /// <param name="dimension"></param>
-    private void GetIDCoordinates(int ID, int dimension) {
-
-        for (int i = 0; i < dimension; i++) {
-
-            for (int j = 0; j < dimension; j++) {
-                if (MazeMatrix[i][j].id == ID) {
-                    SearchAndMark(MazeMatrix[i][j]);
-                }
-            }
-
-        }
-
+    /// <param name="activeCells"></param>
+    private void DoFirstGenerationStep(List<MazeCell> activeCells) {
+        activeCells.Add(CreateCell(RandomCoordinates));
     }
 
     /// <summary>
-    /// 
+    /// "Retrieve the current cell, check whether the move is posible, and take care
+    /// of removing cells from the [active cells] list"
     /// </summary>
-    /// <param name="v"></param>
-    private void SearchAndMark(Vertex v) {
-        int row = (v.row * 2);
-        int column = (v.col * 2);
-        int oldRow = (v.previousX * 2);
-        int oldColumn = (v.previousY * 2);
+    /// <param name="activeCells"></param>
+    private void DoNextGenerationStep(List<MazeCell> activeCells) {
+        // Set our current index as the last active cell
+        int currentIndex = activeCells.Count - 1;
+        
+        // Get the last active cell
+        MazeCell currentCell = activeCells[currentIndex];
 
-        // If we got the top left corner, we know it's type 1
-        if (row == 0 && column == 0) {
-            SolvedMazePath[row][column] = 1;
+        // If the cell is already ready, remove it from our active cells
+        // and return
+        if (currentCell.IsFullyInitialized) {
+            activeCells.RemoveAt(currentIndex);
             return;
         }
+        // Get a direction for a random uninitialized edge
+        MazeDirection direction = currentCell.RandomUninitializedDirection;
 
-        SolvedMazePath[row][column] = 1;
+        // Set our coordinates to be the current one, plus one cell over (
+        IntVector2 coordinates = currentCell.coordinates + direction.ToIntVector2();
 
-        if (row - oldRow == 0) {
-            if (column - oldColumn > 0)
-                SolvedMazePath[row][column - 1] = 1;
-            else
-                SolvedMazePath[row][column + 1] = 1;
-        } else {
-            if (row - oldRow > 0)
-                SolvedMazePath[row - 1][column] = 1;
-            else
-                SolvedMazePath[row + 1][column] = 1;
-        }
+        // If these coordinates are inside of our maze
+        if (ContainsCoordinates(coordinates)) {
+            // Get the neighbor that we're about to process at those coordinates
+            MazeCell neighbor = GetCell(coordinates);
 
-    }
+            // If there isn't a cell for that neighbor yet,
+            if (neighbor == null) {
+                // let's make it at those coordinates
+                neighbor = CreateCell(coordinates);
 
-    /// <summary>
-    /// Output our maze to the console
-    /// </summary>
-    public void ShowMaze() {
-        int dimension = MazeSize;
-        string Output = "";
-
-        for (int i = 0; i < (dimension * 2) - 1; i++) {
-
-            for (int j = 0; j < (dimension * 2) - 1; j++) {
-                Output += SolvedMazePath[i][j] + " ";
-            }
-
-            Output += "\n";
-        }
-
-        Debug.Log(Output);
-
-    }
-
-    /// <summary>
-    /// Return true if the tile is valid
-    /// </summary>
-    /// <param name="row"></param>
-    /// <param name="column"></param>
-    /// <returns></returns>
-    private bool ValidTile(int row, int column) {
-        bool result = false;
-
-        if (row >= 0 && row < SolvedMazePath.Length && column >= 0 && column < SolvedMazePath[0].Length) {
-
-            if (SolvedMazePath[row][column] == 1) {
-                result = true;
-            }
-
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Solve the maze
-    /// </summary>
-    /// <param name="row"></param>
-    /// <param name="column"></param>
-    /// <returns></returns>
-    public bool SolveMaze(int row, int column) {
-        bool done = false;
-
-        if (ValidTile(row, column)) {
-            SolvedMazePath[row][column] = 2; //tile has already been tried
-            if (row == SolvedMazePath.Length - 1 && column == SolvedMazePath.Length - 1) {
-                done = true;
+                // Make a passage between these two cells
+                CreatePassage(currentCell, neighbor, direction);
+                
+                // Add this neighbor to our active cells
+                activeCells.Add(neighbor);
             } else {
-                done = SolveMaze(row + 1, column); // down
-                if (!done) {
-                    done = SolveMaze(row, column - 1); //left
-                }
-                if (!done) {
-                    done = SolveMaze(row - 1, column); //up
-                }
-                if (!done) {
-                    done = SolveMaze(row, column + 1); //right
-                }
+                // There's already a cell for that neighbor, so just place a wall
+                CreateWall(currentCell, neighbor, direction);
             }
-            if (done) {
-                SolvedMazePath[row][column] = 3; //3 means path leading to the end
-            }
+
+        } else {
+            // Coordinates for this cell aren't even in the maze, so just make a wall
+            // This wall will be an outer edge for the maze.
+            // THIS IS WHERE OUTSIDE WALLS ARE MADE
+            CreateWall(currentCell, null, direction);
         }
-        return done;
+
     }
 
     /// <summary>
-    /// Output the solved maze to the console
+    /// Create a cell at the provided coordinates
     /// </summary>
-    public void PrintSolvedMaze() {
-        string Output = "";
+    /// <param name="coordinates">An IntVector2 with X and Z position in our graph</param>
+    /// <returns></returns>
+    private MazeCell CreateCell(IntVector2 coordinates) {
+        // Instantiate the cell's prefab as a MazeCell
+        MazeCell newCell = Instantiate(cellPrefab) as MazeCell;
 
-        for (int i = 0; i < SolvedMazePath.Length; i++) {
+        // add this new cell to our cell array
+        cells[coordinates.x, coordinates.z] = newCell;
 
-            for (int j = 0; j < SolvedMazePath[0].Length; j++) {
-                Output += SolvedMazePath[i][j] + " ";
-            }
+        // Get the cell ready
+        newCell.coordinates = coordinates;
+        newCell.name = "Maze Cell " + coordinates.x + ", " + coordinates.z;
+        newCell.transform.parent = transform;
+        newCell.transform.localPosition = new Vector3(coordinates.x - size.x * 0.5f + 0.5f, 0f, coordinates.z - size.z * 0.5f + 0.5f);
 
-            Output += "\n";
-        }
-
-        Debug.Log(Output);
+        return newCell;
     }
 
-} // end Maze
+    /// <summary>
+    /// Create a Maze Passage GameObject in between two cells, either
+    /// a door or an "empty" passage
+    /// </summary>
+    /// <param name="cell">The current cell we're processing</param>
+    /// <param name="otherCell">The next cell over</param>
+    /// <param name="direction">The direction the next cell is in relation to the current cell</param>
+    private void CreatePassage(MazeCell cell, MazeCell otherCell, MazeDirection direction) {
+        // Choose a prefab based on our probability of our passage being a door
+        MazePassage prefab = Random.value < doorProbability ? doorPrefab : passagePrefab;
 
+        // Instantiate and initialize our passage
+        MazePassage passage = Instantiate(prefab) as MazePassage;
+        passage.Initialize(cell, otherCell, direction);
+        
+        // Instantiate our passagePrefab and initialize it in the Opposite direction
+        passage = Instantiate(passagePrefab) as MazePassage;
+        passage.Initialize(otherCell, cell, direction.GetOpposite());
+    }
 
+    /// <summary>
+    /// Create a Maze Wall GameObject in between our two cells
+    /// Choose randomly from an array of Wall prefabs
+    /// </summary>
+    /// <param name="cell"></param>
+    /// <param name="otherCell"></param>
+    /// <param name="direction"></param>
+    private void CreateWall(MazeCell cell, MazeCell otherCell, MazeDirection direction) {
+        // Choose a random wall prefab, instantiate, and initialize it
+        MazeWall wall = Instantiate(wallPrefabs[Random.Range(0, wallPrefabs.Length)]) as MazeWall;
+        wall.Initialize(cell, otherCell, direction);
 
+        // If the other cell exists, instantiate and initialize again in the opposite direction
+        if (otherCell != null) {
+            wall = Instantiate(wallPrefabs[Random.Range(0, wallPrefabs.Length)]) as MazeWall;
+            wall.Initialize(otherCell, cell, direction.GetOpposite());
+        }
 
+    }
 
-
-
-
-
-
+}

@@ -6,8 +6,8 @@ using TMPro;
 
 public class DeveloperConsole : MonoBehaviour {
 
-    GameObject DevCanvas;
-    GameObject DevPanel;
+    UnityEngine.GameObject DevCanvas;
+    UnityEngine.GameObject DevPanel;
 
     [SerializeField]
     TextMeshProUGUI display = default;
@@ -24,9 +24,9 @@ public class DeveloperConsole : MonoBehaviour {
     /// Cache our variables
     /// </summary>
     void Awake() {
-        DevCanvas = GameObject.Find("ConsoleCanvas");
-        DevPanel = GameObject.Find("ConsolePanel");
-        isShowing = true;
+        DevCanvas = UnityEngine.GameObject.Find("ConsoleCanvas");
+        DevPanel = UnityEngine.GameObject.Find("ConsolePanel");
+        CloseConsole();
 
     }
 
